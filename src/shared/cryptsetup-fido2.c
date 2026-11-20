@@ -30,12 +30,14 @@ int acquire_fido2_key(
                 const char *askpw_credential,
                 AskPasswordFlags askpw_flags,
                 bool prompt_salt,
+                bool mix_passphrase,
                 void **ret_decrypted_key,
                 size_t *ret_decrypted_key_size) {
 
 #if HAVE_LIBCRYPTSETUP && HAVE_LIBFIDO2
         _cleanup_(erase_and_freep) char *envpw = NULL;
         _cleanup_strv_free_erase_ char **pins = NULL;
+        _cleanup_(erase_and_freep) char *passphrase = NULL;
         _cleanup_(iovec_done_erase) struct iovec loaded_salt = {};
         bool device_exists = false;
         struct iovec salt;
@@ -46,6 +48,7 @@ int acquire_fido2_key(
                                         "Local verification is required to unlock this volume, but the 'headless' parameter was set.");
 
         assert(cid);
+        assert(!(prompt_salt && mix_passphrase));
         assert(key_file || iovec_is_set(key_data) || prompt_salt);
 
         if (prompt_salt) {
@@ -69,6 +72,13 @@ int acquire_fido2_key(
                         return r;
 
                 salt = loaded_salt;
+        }
+
+        if (mix_passphrase) {
+                /* Ask once, up front: the retry loop below only concerns the token PIN. */
+                r = fido2_ask_salt_passphrase(volume_name, until, askpw_flags, &passphrase);
+                if (r < 0)
+                        return r;
         }
 
         r = getenv_steal_erase("PIN", &envpw);
@@ -110,8 +120,15 @@ int acquire_fido2_key(
                                 ret_decrypted_key_size);
                 if (!IN_SET(r,
                             -ENOANO,   /* needs pin */
-                            -ENOLCK))  /* pin incorrect */
+                            -ENOLCK)) { /* pin incorrect */
+                        if (r >= 0 && mix_passphrase) {
+                                _cleanup_(erase_and_freep) void *hmac = TAKE_PTR(*ret_decrypted_key);
+                                size_t hmac_size = *ret_decrypted_key_size;
+
+                                r = fido2_mix_passphrase(hmac, hmac_size, passphrase, ret_decrypted_key, ret_decrypted_key_size);
+                        }
                         return r;
+                }
 
                 device_exists = true; /* that a PIN is needed/wasn't correct means that we managed to
                                        * talk to a device */
@@ -171,7 +188,7 @@ int acquire_fido2_key_auto(
                 _cleanup_free_ void *salt = NULL;
                 _cleanup_free_ char *rp = NULL;
                 size_t salt_size = 0;
-                bool salt_prompt = false;
+                bool salt_prompt = false, mix_passphrase = false;
                 int ks;
 
                 r = cryptsetup_get_token_as_json(cd, token, "systemd-fido2", &v);
@@ -207,6 +224,21 @@ int acquire_fido2_key_auto(
 
                         salt_prompt = sd_json_variant_boolean(w);
                 }
+
+                w = sd_json_variant_by_key(v, "fido2-mix-passphrase");
+                if (w) {
+                        /* The "fido2-mix-passphrase" field is optional. */
+
+                        if (!sd_json_variant_is_boolean(w))
+                                return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                                       "FIDO2 token data's 'fido2-mix-passphrase' field is not a boolean.");
+
+                        mix_passphrase = sd_json_variant_boolean(w);
+                }
+
+                if (salt_prompt && mix_passphrase)
+                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                               "FIDO2 token data sets both 'fido2-salt-prompt' and 'fido2-mix-passphrase'.");
 
                 if (!salt_prompt) {
                         w = sd_json_variant_by_key(v, "fido2-salt");
@@ -286,6 +318,7 @@ int acquire_fido2_key_auto(
                                 "cryptsetup.fido2-pin",
                                 askpw_flags,
                                 salt_prompt,
+                                mix_passphrase,
                                 ret_decrypted_key,
                                 ret_decrypted_key_size);
                 if (ret == 0)

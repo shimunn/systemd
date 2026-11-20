@@ -70,6 +70,7 @@ typedef struct EnrollContext {
         char *fido2_device;
         char *fido2_salt_file;
         bool fido2_salt_prompt;
+        bool fido2_mix_passphrase;
         bool fido2_parameters_in_header;
         Fido2EnrollFlags fido2_lock_with;
         int fido2_cred_alg;

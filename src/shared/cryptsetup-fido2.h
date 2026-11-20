@@ -19,6 +19,7 @@ int acquire_fido2_key(
                 const char *askpw_credential,
                 AskPasswordFlags askpw_flags,
                 bool prompt_salt,
+                bool mix_passphrase,
                 void **ret_decrypted_key,
                 size_t *ret_decrypted_key_size);
 

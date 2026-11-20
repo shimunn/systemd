@@ -142,14 +142,37 @@ int enroll_fido2(
         if (r < 0)
                 return r;
 
+        if (c->fido2_mix_passphrase) {
+                _cleanup_(erase_and_freep) char *passphrase = NULL;
+                _cleanup_(erase_and_freep) void *mixed = NULL;
+                size_t mixed_size;
+
+                r = fido2_ask_salt_passphrase(node, /* until= */ 0, c->interactive ? 0 : ASK_PASSWORD_HEADLESS, &passphrase);
+                if (r < 0)
+                        return r;
+
+                r = fido2_mix_passphrase(secret, secret_size, passphrase, &mixed, &mixed_size);
+                if (r < 0)
+                        return r;
+
+                erase_and_free(secret);
+                secret = TAKE_PTR(mixed);
+                secret_size = mixed_size;
+        }
+
         /* Before we use the secret, we base64 encode it, for compat with homed, and to make it easier to type in manually */
         base64_encoded_size = base64mem(secret, secret_size, &base64_encoded);
         if (base64_encoded_size < 0)
                 return log_error_errno(base64_encoded_size, "Failed to base64 encode secret key: %m");
 
-        r = cryptsetup_set_minimal_pbkdf(cd);
-        if (r < 0)
-                return log_error_errno(r, "Failed to set minimal PBKDF: %m");
+        /* The token secret alone is a high-entropy key, so a minimal PBKDF suffices. When a passphrase is
+         * mixed in, the key may be only as strong as that passphrase should the token's secret leak, so
+         * keep the default (benchmarked, memory-hard) PBKDF to make guessing it expensive. */
+        if (!c->fido2_mix_passphrase) {
+                r = cryptsetup_set_minimal_pbkdf(cd);
+                if (r < 0)
+                        return log_error_errno(r, "Failed to set minimal PBKDF: %m");
+        }
 
         keyslot = sym_crypt_keyslot_add_by_volume_key(
                         cd,
@@ -176,6 +199,7 @@ int enroll_fido2(
                                 SD_JSON_BUILD_PAIR("fido2-credential", SD_JSON_BUILD_BASE64(cid, cid_size)),
                                 SD_JSON_BUILD_PAIR("fido2-salt", JSON_BUILD_IOVEC_BASE64(c->fido2_salt_prompt ? &placeholder_salt : &salt)),
                                 SD_JSON_BUILD_PAIR_CONDITION(c->fido2_salt_prompt, "fido2-salt-prompt", SD_JSON_BUILD_BOOLEAN(true)),
+                                SD_JSON_BUILD_PAIR_CONDITION(c->fido2_mix_passphrase, "fido2-mix-passphrase", SD_JSON_BUILD_BOOLEAN(true)),
                                 SD_JSON_BUILD_PAIR("fido2-rp", JSON_BUILD_CONST_STRING("io.systemd.cryptsetup")),
                                 SD_JSON_BUILD_PAIR_BOOLEAN("fido2-clientPin-required", FLAGS_SET(lock_with, FIDO2ENROLL_PIN)),
                                 SD_JSON_BUILD_PAIR_BOOLEAN("fido2-up-required", FLAGS_SET(lock_with, FIDO2ENROLL_UP)),

@@ -70,6 +70,7 @@ static char *arg_fido2_device = NULL;
 static char *arg_fido2_salt_file = NULL;
 static bool arg_fido2_parameters_in_header = true;
 static bool arg_fido2_salt_prompt = false;
+static bool arg_fido2_mix_passphrase = false;
 static char *arg_tpm2_device = NULL;
 static uint32_t arg_tpm2_seal_key_handle = 0;
 static char *arg_tpm2_device_key = NULL;
@@ -576,6 +577,13 @@ static int parse_argv(int argc, char *argv[]) {
                                 return r;
                         break;
 
+                OPTION_LONG("fido2-mix-passphrase", "BOOL",
+                            "Combine the FIDO2 token's secret with a passphrase asked on every unlock"):
+                        r = parse_boolean_argument("--fido2-mix-passphrase=", opts.arg, &arg_fido2_mix_passphrase);
+                        if (r < 0)
+                                return r;
+                        break;
+
                 OPTION_LONG("fido2-parameters-in-header", "BOOL",
                             "Whether to store FIDO2 parameters in the LUKS2 header"):
                         r = parse_boolean_argument("--fido2-parameters-in-header=", opts.arg, &arg_fido2_parameters_in_header);
@@ -801,6 +809,10 @@ static int parse_argv(int argc, char *argv[]) {
                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
                                                "FIDO2 parameters' storage in the LUKS2 header was disabled, but neither salt file nor salt prompt provided, refusing.");
 
+                if (arg_fido2_mix_passphrase && arg_fido2_salt_prompt)
+                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                               "--fido2-mix-passphrase= and --fido2-salt-prompt= are mutually exclusive, refusing.");
+
                 if (arg_fido2_salt_prompt && arg_fido2_salt_file)
                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
                                                "--fido2-salt-prompt= and --fido2-salt-file= are mutually exclusive, refusing.");
@@ -974,6 +986,7 @@ static int enroll_context_from_args(EnrollContext *c) {
         c->unlock_type = arg_unlock_type;
         c->fido2_parameters_in_header = arg_fido2_parameters_in_header;
         c->fido2_salt_prompt = arg_fido2_salt_prompt;
+        c->fido2_mix_passphrase = arg_fido2_mix_passphrase;
         c->fido2_lock_with = arg_fido2_lock_with;
         c->fido2_cred_alg = arg_fido2_cred_alg;
         c->tpm2_seal_key_handle = arg_tpm2_seal_key_handle;
