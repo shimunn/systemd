@@ -99,6 +99,14 @@ int parse_luks2_fido2_data(
         if (r < 0)
                 return crypt_log_error_errno(cd, r, "Failed to parse JSON token data: %m");
 
+        /* Tokens that want a passphrase asked on every unlock cannot be handled here, since the token
+         * module API has no way to ask for one. Refuse cleanly rather than trying a wrong key. */
+        FOREACH_STRING(field, "fido2-salt-prompt", "fido2-mix-passphrase") {
+                w = sd_json_variant_by_key(v, field);
+                if (w && sd_json_variant_is_boolean(w) && sd_json_variant_boolean(w))
+                        return crypt_log_debug_errno(cd, -EOPNOTSUPP, "FIDO2 token requires a passphrase, unsupported by the token module.");
+        }
+
         w = sd_json_variant_by_key(v, "fido2-credential");
         if (!w)
                 return -EINVAL;

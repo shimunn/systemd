@@ -1585,6 +1585,12 @@ static int attach_luks_or_plain_or_bitlk_by_fido2(
         assert(name);
         assert(arg_fido2_device || arg_fido2_device_auto);
 
+        /* The token module cannot ask for a salt passphrase, so unlock such volumes ourselves. */
+        if (use_libcryptsetup_plugin && !arg_fido2_cid && fido2_token_needs_passphrase(cd)) {
+                log_debug("FIDO2 token requires a passphrase, not using libcryptsetup token module.");
+                use_libcryptsetup_plugin = false;
+        }
+
         if (arg_fido2_cid && !key_file && !iovec_is_set(key_data))
                 return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
                                         "FIDO2 mode with manual parameters selected, but no keyfile specified, refusing.");

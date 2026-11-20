@@ -33,3 +33,5 @@ int acquire_fido2_key_auto(
                 AskPasswordFlags askpw_flags,
                 void **ret_decrypted_key,
                 size_t *ret_decrypted_key_size);
+
+bool fido2_token_needs_passphrase(struct crypt_device *cd);

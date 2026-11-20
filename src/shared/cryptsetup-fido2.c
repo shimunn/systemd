@@ -340,3 +340,28 @@ int acquire_fido2_key_auto(
         return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), "FIDO2 token support not available.");
 #endif
 }
+
+bool fido2_token_needs_passphrase(struct crypt_device *cd) {
+#if HAVE_LIBCRYPTSETUP && HAVE_LIBFIDO2
+        assert(cd);
+
+        /* Checks whether any systemd-fido2 token in the LUKS2 header wants a passphrase to be asked on every
+         * unlock (either to derive the salt, or to be mixed into the key). The libcryptsetup token module
+         * has no way to ask for one, so callers need to handle such volumes themselves. */
+
+        for (int token = 0; token < sym_crypt_token_max(CRYPT_LUKS2); token++) {
+                _cleanup_(sd_json_variant_unrefp) sd_json_variant *v = NULL;
+                sd_json_variant *w;
+
+                if (cryptsetup_get_token_as_json(cd, token, "systemd-fido2", &v) < 0)
+                        continue;
+
+                FOREACH_STRING(field, "fido2-salt-prompt", "fido2-mix-passphrase") {
+                        w = sd_json_variant_by_key(v, field);
+                        if (w && sd_json_variant_is_boolean(w) && sd_json_variant_boolean(w))
+                                return true;
+                }
+        }
+#endif
+        return false;
+}
