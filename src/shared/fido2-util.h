@@ -5,3 +5,4 @@
 
 int fido2_generate_salt(struct iovec *ret_salt);
 int fido2_read_salt_file(const char *filename, uint64_t offset, const char *client, const char *node, struct iovec *ret_salt);
+int fido2_prompt_salt(const char *node, usec_t until, AskPasswordFlags flags, struct iovec *ret_salt);

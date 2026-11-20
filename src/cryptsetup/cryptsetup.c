@@ -451,6 +451,7 @@ static int parse_one_option(const char *option) {
                 if (r < 0)
                         return log_error_errno(r, "Failed to parse %s: %m", option);
                 arg_fido2_salt_prompt = r;
+
         } else if ((val = startswith(option, "fido2-up="))) {
 
                 r = parse_boolean(val);

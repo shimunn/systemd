@@ -575,6 +575,7 @@ static int parse_argv(int argc, char *argv[]) {
                         if (r < 0)
                                 return r;
                         break;
+
                 OPTION_LONG("fido2-parameters-in-header", "BOOL",
                             "Whether to store FIDO2 parameters in the LUKS2 header"):
                         r = parse_boolean_argument("--fido2-parameters-in-header=", opts.arg, &arg_fido2_parameters_in_header);
@@ -796,9 +797,13 @@ static int parse_argv(int argc, char *argv[]) {
                                                "When both enrolling and unlocking with FIDO2 tokens, automatic discovery is unsupported. "
                                                "Please specify device paths for enrolling and unlocking respectively.");
 
-                if (!arg_fido2_parameters_in_header && !arg_fido2_salt_file)
+                if (!arg_fido2_parameters_in_header && !arg_fido2_salt_file && !arg_fido2_salt_prompt)
                         return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                               "FIDO2 parameters' storage in the LUKS2 header was disabled, but no salt file provided, refusing.");
+                                               "FIDO2 parameters' storage in the LUKS2 header was disabled, but neither salt file nor salt prompt provided, refusing.");
+
+                if (arg_fido2_salt_prompt && arg_fido2_salt_file)
+                        return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
+                                               "--fido2-salt-prompt= and --fido2-salt-file= are mutually exclusive, refusing.");
 
                 if (!arg_fido2_device) {
                         r = fido2_find_device_auto(&arg_fido2_device);
@@ -968,6 +973,7 @@ static int enroll_context_from_args(EnrollContext *c) {
         c->enroll_type = arg_enroll_type;
         c->unlock_type = arg_unlock_type;
         c->fido2_parameters_in_header = arg_fido2_parameters_in_header;
+        c->fido2_salt_prompt = arg_fido2_salt_prompt;
         c->fido2_lock_with = arg_fido2_lock_with;
         c->fido2_cred_alg = arg_fido2_cred_alg;
         c->tpm2_seal_key_handle = arg_tpm2_seal_key_handle;
@@ -985,7 +991,6 @@ static int enroll_context_from_args(EnrollContext *c) {
             strdup_to(&c->unlock_tpm2_device, arg_unlock_tpm2_device) < 0 ||
             strdup_to(&c->fido2_device, arg_fido2_device) < 0 ||
             strdup_to(&c->fido2_salt_file, arg_fido2_salt_file) < 0 ||
-                (c->fido2_salt_prompt = arg_fido2_salt_prompt, 0) ||
             strdup_to(&c->pkcs11_token_uri, arg_pkcs11_token_uri) < 0 ||
             strdup_to(&c->tpm2_device, arg_tpm2_device) < 0 ||
             strdup_to(&c->tpm2_device_key, arg_tpm2_device_key) < 0 ||
